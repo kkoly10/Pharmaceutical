@@ -2,10 +2,16 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/env";
 
-const PUBLIC_PATHS = ["/login", "/signup", "/auth"];
+const PUBLIC_PREFIX_PATHS = ["/login", "/signup", "/auth"];
+// Exact match only — "/" is the public marketing page, but "/" as a prefix
+// would match every path and disable auth protection entirely.
+const PUBLIC_EXACT_PATHS = ["/"];
 
 function isPublicPath(pathname: string): boolean {
-  return PUBLIC_PATHS.some((path) => pathname.startsWith(path));
+  return (
+    PUBLIC_EXACT_PATHS.includes(pathname) ||
+    PUBLIC_PREFIX_PATHS.some((path) => pathname.startsWith(path))
+  );
 }
 
 export async function updateSession(request: NextRequest) {

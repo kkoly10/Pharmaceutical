@@ -42,7 +42,7 @@ export async function signUp(
   // Some projects auto-confirm (or have email confirmation disabled), in
   // which case signUp already returns a live session — no email step needed.
   if (data.session) {
-    redirect("/");
+    redirect("/app");
   }
 
   return { ok: true, message: "Check your email to confirm your account, then log in." };
@@ -67,7 +67,7 @@ export async function signIn(
     return { ok: false, message: error.message };
   }
 
-  redirect("/");
+  redirect("/app");
 }
 
 export async function signOut() {

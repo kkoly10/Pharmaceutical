@@ -73,13 +73,17 @@ Every table/function/bucket is prefixed `wardrobe_` — see the shared-project c
 - `wardrobe_outfit_wears`: one row per time an outfit was marked worn (`worn_on` date) — this is what lets the app avoid repeating the same suggestion, the actual complaint ("I have all these clothes but can't make an outfit") this product exists to fix.
 - Marking a suggestion worn calls the `wardrobe_mark_outfit_worn` RPC, which creates the `wardrobe_outfits` row, its `wardrobe_outfit_items`, and the `wardrobe_outfit_wears` row atomically (a suggestion is never persisted unless/until it's worn — there's no "save without wearing" flow in v1).
 
+### Routing
+
+`/` is the **public marketing page** (`app/page.tsx`, outside the `(app)` route group — no auth layout, no nav bar) — this is the one exception to auth-gating, see `PUBLIC_EXACT_PATHS` in `lib/supabase/proxy.ts`. The authenticated occasion-picker home lives at `/app` (`app/(app)/app/page.tsx`); `/closet` is the other authenticated page. Both `signIn`/`signUp` (`lib/auth/actions.ts`) and the email-confirmation callback (`app/auth/callback/route.ts`) redirect to `/app`, not `/`, after success — if you ever add another post-auth redirect, it goes to `/app` too, not the marketing page.
+
 ### Outfit-matching logic (`lib/outfit-matching/`)
 
 Rule-based, no ML/embeddings: `generate.ts` fills the required category "slots" for the occasion (`occasions.ts` — a dress, or a top+bottom, plus shoes, with optional outerwear/accessory), filters candidates by formality range, scores combinations by color-harmony (hue-distance heuristic in `colors.ts` — neutrals pair with anything, analogous/complementary hues score well, the "awkward middle" distance scores worst), penalizes combining two bold patterns, and soft-penalizes recently-worn items (with a stronger penalty for repeating the exact same item set within 14 days, read from `wardrobe_outfit_wears`/`wardrobe_outfit_items`). Framework-free (no Next.js/Supabase imports in these files) so it stays independently unit-testable (`generate.test.ts`, run via `npm test`) and portable to a native app later — this is the one part of the codebase worth that isolation; don't extend the same treatment to code that has no such reuse need.
 
 ## MVP scope — what v1 is and is not
 
-**In scope, and built:** add closet items (manual tags, optional photo — AI auto-tag assist is not yet built); pick an occasion; get outfit suggestions built only from clothes the user already owns; mark an outfit worn; avoid repeating recent suggestions.
+**In scope, and built:** a public marketing page at `/` (honest positioning, no fabricated metrics/testimonials — see its content for the actual competitive research behind it); add closet items (manual tags, optional photo — AI auto-tag assist is not yet built); pick an occasion; get outfit suggestions built only from clothes the user already owns; mark an outfit worn; avoid repeating recent suggestions.
 
 **In scope, not yet built:** swap out one piece and regenerate (today you'd re-run the whole picker; there's no per-item swap UI yet); AI auto-tag from photo (Claude Haiku vision, per the Stack section); weather-aware suggestions (OpenWeatherMap).
 

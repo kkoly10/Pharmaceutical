@@ -8,7 +8,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <header className="border-b">
         <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-6 py-4">
           <nav className="flex gap-4 text-sm font-medium">
-            <Link href="/">What to wear</Link>
+            <Link href="/app">What to wear</Link>
             <Link href="/closet">Closet</Link>
           </nav>
           <form action={signOut}>
