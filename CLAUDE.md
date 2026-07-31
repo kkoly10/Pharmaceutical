@@ -62,7 +62,7 @@ Env vars (see `.env.example`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE
 - **Tailwind CSS + shadcn/ui** for the UI — fast to build image-heavy grid/gallery layouts.
 - **Zod** for validating closet-item and outfit-request input at the server boundary.
 - **Anthropic API (Claude Haiku, vision)** — optional "auto-tag from photo" assist layered on top of manual entry, never a replacement for it. Not yet built. Call it server-side only (route handler / server action); never ship the API key to the client.
-- **OpenWeatherMap** (free tier) if/when weather-aware suggestions are built — not yet built; cache responses, don't call it per-request. `generateOutfits()` already accepts an optional `targetWarmth` for this.
+- **Open-Meteo** (not OpenWeatherMap — research corrected this: fully free, no API key, no card on file, so no billing-risk surface for a hobby project) if/when weather-aware suggestions are built — not yet built; cache responses, don't call it per-request. `generateOutfits()` already accepts an optional `targetWarmth` for this. Request location only just-in-time (when the user opens the weather-aware picker, never at signup), and let the user set a home city once via Open-Meteo's built-in geocoding as a persistent override.
 
 ### Data model (`supabase/migrations/20260731012536_initial_schema.sql`)
 
@@ -81,10 +81,35 @@ Every table/function/bucket is prefixed `wardrobe_` — see the shared-project c
 
 Rule-based, no ML/embeddings: `generate.ts` fills the required category "slots" for the occasion (`occasions.ts` — a dress, or a top+bottom, plus shoes, with optional outerwear/accessory), filters candidates by formality range, scores combinations by color-harmony (hue-distance heuristic in `colors.ts` — neutrals pair with anything, analogous/complementary hues score well, the "awkward middle" distance scores worst), penalizes combining two bold patterns, and soft-penalizes recently-worn items (with a stronger penalty for repeating the exact same item set within 14 days, read from `wardrobe_outfit_wears`/`wardrobe_outfit_items`). Framework-free (no Next.js/Supabase imports in these files) so it stays independently unit-testable (`generate.test.ts`, run via `npm test`) and portable to a native app later — this is the one part of the codebase worth that isolation; don't extend the same treatment to code that has no such reuse need.
 
+### Outfit-matching quality roadmap (researched, not yet built)
+
+The founder's own framing: don't chase competitors' "AI stylist" layer — that's the exact part reviewers tear apart across every competitor researched (nonsensical/weather-blind pairings, ignoring whole categories). Our structural advantage is that this engine *can't* produce those specific failures (hard slot-filling + formality range make them impossible, not just unlikely). "Improve the core" here means richer, still-fully-explainable rules and a transparent per-user signal — never an opaque model. Research was run across Western, Japanese, Korean, French, and Chinese sources specifically (not English-only) — see the finding on why below.
+
+**Color-harmony scoring is measurably wrong today, independent of any new feature.** The current 3-bucket model (analogous ≤40°, complementary ≥150°, else "awkward middle" @ 0.3) scores red/green — 120° apart in this app's own palette — as awkward, but 120° is Itten's (Bauhaus) canonical **triadic harmony** angle. Fix: replace the 3 buckets with named-harmony-angle windows (30°=analogous, 60°/120°=triadic-family, 90°=tetradic, 150°=split-complementary, 180°=complementary, each ±~8° tolerance) instead of one flat mid-range penalty. This alone is worth doing regardless of the rest of this section.
+
+Further rules found, each independently sourced and each directly implementable without ML:
+- **Color-role scoring** (Western 60-30-10 rule *and* Korean 무채색+원포인트 "neutrals + one point color" converge on the same structure): score for a dominant/secondary/accent role by category (base = dress or top+bottom, secondary = outerwear, accent = shoes/accessory), rather than averaging every pair identically. Bonus when exactly one item is the deliberate "point" of color against an otherwise-neutral base.
+- **Kasane-no-irome mediation** (Japanese Heian-era kimono-layering theory, 襲の色目): a neutral item in a 3+ item outfit should soften the clash penalty between two chromatic items it sits "between" — mirrors the historical convention of inserting a pale layer between two contrasting colors.
+- **Near-clash neutral exception** (French styling guides): navy+black is a named "faux pas" — too close to read as intentional, too different to read as deliberate. Carve out specific known-clashing neutral pairs rather than treating all neutral-neutral pairs as uniformly safe.
+- **Lightness ordering** (Chinese 色彩搭配, 明度排列法): small bonus for a monotonic light-to-dark (or reverse) gradient from top to bottom of the outfit — needs each palette color hand-tagged with an approximate lightness value. Genuinely novel next to the Western/Japanese rules; our current *unordered* pairwise-average scoring can't express this at all.
+- **PCCS tone axis** (Japanese 配色/haishoku): score hue-distance and a separate tone-distance (light/dark/vivid/dull buckets) as two independent axes, so "same hue different tone" (tone-on-tone) or "same tone different hue" also count as valid harmony, not just hue-angle proximity. Bigger lift than the rest (needs a second hand-tagged attribute per palette color) — sequence after the others.
+
+**Deliberately not adopting**, and why: 五行/wuxing "auspicious color" pairing (Chinese five-element fortune theory) — it's a luck framing, not a visual-harmony one, wrong fit for this app. Korean 퍼스널컬러 (personal color matched to skin/hair/eye tone) — a real, separate future feature (matches clothing *to the wearer*, not item-to-item), not a same-outfit scoring change, and needs user-appearance data we don't collect.
+
+**Per-user preference learning** — the other real gap: the engine currently scores identically on day 1 and day 100 except for the recency penalty; nothing it does gets more personalized over time. One new additive score term, **Beta-Bernoulli Bayesian shrinkage** (the same math underlies Thompson Sampling, Bayesian/IMDB-style rating averages, and the Wilson score interval — one implementation, three citable justifications):
+
+```
+preference(f) = (3 + worn(f)) / (6 + worn(f) + 0.3 × shown(f))
+```
+
+for a tracked feature `f` (e.g. a specific color pairing), added to the existing linear score with a small weight. The `3`/`3` prior keeps 1-2 data points from swinging the score; `0.3` encodes that a shown-but-not-chosen suggestion is much weaker evidence than an actually-worn one. Checked Chinese- and Korean-language recommender-systems sources explicitly — both converged on the same classical techniques English sources give (no hidden alternative there), though a Chinese source's formula independently confirmed the recency-decay design already in `generate.ts`.
+
+**Open decision, not yet resolved — confirm before building:** `shown(f)` requires persisting every *generated* suggestion, not just worn ones — a real change to the "a suggestion is never persisted unless/until it's worn" principle above. A simpler version needs no schema change: track only `worn(f)`, drop the negative term entirely — `preference(f) = worn(f) / (worn(f) + 5)`. Same shrinkage principle, positive-only signal. Pick one before implementing either.
+
 ## MVP scope — what v1 is and is not
 
 **In scope, and built:** a public marketing page at `/` (honest positioning, no fabricated metrics/testimonials — see its content for the actual competitive research behind it); add closet items (manual tags, optional photo — AI auto-tag assist is not yet built); pick an occasion; get outfit suggestions built only from clothes the user already owns; mark an outfit worn; avoid repeating recent suggestions.
 
-**In scope, not yet built:** swap out one piece and regenerate (today you'd re-run the whole picker; there's no per-item swap UI yet); AI auto-tag from photo (Claude Haiku vision, per the Stack section); weather-aware suggestions (OpenWeatherMap).
+**In scope, not yet built:** swap out one piece and regenerate (today you'd re-run the whole picker; there's no per-item swap UI yet — implementation note: extend `generateOutfits()` with an optional `lockedItemIds` param that pre-fills those slots and skips them in the search, scoring the smaller remaining space with the exact same functions already in `colors.ts`, not a second algorithm); AI auto-tag from photo (Claude Haiku vision, per the Stack section); weather-aware suggestions (Open-Meteo, per the Stack section); the color-matching and per-user preference-learning upgrades in "Outfit-matching quality roadmap" above.
 
 **Explicitly deferred — do not build until asked:** AI chat stylist, social/community features, cost-per-wear or sustainability analytics, shopping/try-before-you-buy integration, the native app itself.
