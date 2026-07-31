@@ -6,6 +6,7 @@ import { closetItemInputSchema } from "@/lib/validation/closet-item";
 import {
   archiveClosetItem as archiveClosetItemRow,
   createClosetItem,
+  CLOSET_PHOTOS_BUCKET,
 } from "@/lib/data/closet-items";
 
 export type ActionState = { ok: boolean; message: string } | null;
@@ -48,7 +49,7 @@ export async function addClosetItem(
     const extension = photo.name.split(".").pop() || "jpg";
     const path = `${user.id}/${crypto.randomUUID()}.${extension}`;
     const { error: uploadError } = await supabase.storage
-      .from("closet-photos")
+      .from(CLOSET_PHOTOS_BUCKET)
       .upload(path, photo, { contentType: photo.type });
 
     if (uploadError) {

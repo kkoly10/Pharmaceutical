@@ -13,7 +13,7 @@ export async function markOutfitWorn(occasion: string, itemIds: string[]): Promi
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.rpc("mark_outfit_worn", {
+  const { error } = await supabase.rpc("wardrobe_mark_outfit_worn", {
     p_occasion: parsed.data.occasion,
     p_item_ids: parsed.data.itemIds,
   });

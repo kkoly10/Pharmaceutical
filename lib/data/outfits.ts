@@ -3,6 +3,11 @@ import type { WornHistoryEntry } from "@/lib/outfit-matching/generate";
 
 const DEFAULT_LOOKBACK_DAYS = 30;
 
+// Prefixed because this Supabase project is shared with an unrelated app —
+// see the migration file for why.
+const WEARS_TABLE = "wardrobe_outfit_wears";
+const OUTFIT_ITEMS_TABLE = "wardrobe_outfit_items";
+
 export async function getRecentWornHistory(
   supabase: SupabaseClient,
   lookbackDays = DEFAULT_LOOKBACK_DAYS,
@@ -12,7 +17,7 @@ export async function getRecentWornHistory(
   const sinceIso = since.toISOString().slice(0, 10);
 
   const { data: wears, error: wearsError } = await supabase
-    .from("outfit_wears")
+    .from(WEARS_TABLE)
     .select("outfit_id, worn_on")
     .gte("worn_on", sinceIso)
     .order("worn_on", { ascending: false });
@@ -23,7 +28,7 @@ export async function getRecentWornHistory(
   const outfitIds = [...new Set(wears.map((wear) => wear.outfit_id))];
 
   const { data: outfitItems, error: itemsError } = await supabase
-    .from("outfit_items")
+    .from(OUTFIT_ITEMS_TABLE)
     .select("outfit_id, closet_item_id")
     .in("outfit_id", outfitIds);
 

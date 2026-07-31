@@ -11,7 +11,7 @@ export const closetItemInputSchema = z.object({
   pattern: z.enum(PATTERNS),
   formality: z.number().int().min(1).max(5),
   warmth: z.number().int().min(1).max(3),
-  // Storage object path in the closet-photos bucket, not a public URL.
+  // Storage object path in the wardrobe-closet-photos bucket, not a public URL.
   photoPath: z.string().min(1).nullable().optional(),
 });
 

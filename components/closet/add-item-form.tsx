@@ -73,7 +73,7 @@ export function AddItemForm() {
 
         <div className="flex flex-col gap-2">
           <Label htmlFor="pattern">Pattern</Label>
-          <Select name="pattern" defaultValue="solid" required>
+          <Select name="pattern" defaultValue="solid" required items={PATTERN_OPTIONS}>
             <SelectTrigger id="pattern" className="w-full">
               <SelectValue />
             </SelectTrigger>
@@ -122,7 +122,7 @@ export function AddItemForm() {
 
         <div className="flex flex-col gap-2">
           <Label htmlFor="formality">Formality</Label>
-          <Select name="formality" defaultValue="2" required>
+          <Select name="formality" defaultValue="2" required items={FORMALITY_OPTIONS}>
             <SelectTrigger id="formality" className="w-full">
               <SelectValue />
             </SelectTrigger>
@@ -138,7 +138,7 @@ export function AddItemForm() {
 
         <div className="flex flex-col gap-2">
           <Label htmlFor="warmth">Warmth</Label>
-          <Select name="warmth" defaultValue="2" required>
+          <Select name="warmth" defaultValue="2" required items={WARMTH_OPTIONS}>
             <SelectTrigger id="warmth" className="w-full">
               <SelectValue />
             </SelectTrigger>
