@@ -207,3 +207,50 @@ export function hasLightnessGradient(garments: ColorScoredGarment[]): boolean {
   const ascending = a <= b && b <= c;
   return descending || ascending;
 }
+
+// --- Per-user preference learning ---
+//
+// The only part of the score that gets more personalized over time. A
+// "feature" here is an unordered pair of colors the user has actually worn
+// together — chosen over per-item or per-single-color signal because (a) it's
+// what the product is about (combinations), and (b) it stays orthogonal to
+// the per-item recency penalty in generate.ts: favoring the navy+white combo
+// doesn't fight rotating *which* navy and white garments you wear.
+//
+// Positive-only Beta-Bernoulli shrinkage (the founder's decided shape — see
+// CLAUDE.md): preference(f) = worn(f) / (worn(f) + PRIOR). A never-worn pair
+// scores 0 (inert at cold start — a brand-new user gets no nudge), and the
+// PRIOR keeps 1-2 wears from swinging it. There is deliberately no negative
+// term for "shown but not chosen": with a tiny user base that signal is noise.
+
+export type ColorPairPreferences = Record<string, number>; // "c1|c2" (sorted) -> worn count
+
+const PREFERENCE_PRIOR = 5;
+
+export function colorPreferenceKey(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
+function pairPreference(wornCount: number): number {
+  return wornCount / (wornCount + PREFERENCE_PRIOR);
+}
+
+// Mean preference across the distinct color pairs present in an outfit. 0 when
+// there's no history or fewer than two distinct colors, so the term vanishes
+// for a new user rather than pushing anything around.
+export function outfitPreferenceScore(
+  garments: ColorScoredGarment[],
+  preferences: ColorPairPreferences,
+): number {
+  const colors = [...new Set(garments.flatMap((g) => g.colors))];
+  if (colors.length < 2) return 0;
+
+  const scores: number[] = [];
+  for (let i = 0; i < colors.length; i++) {
+    for (let j = i + 1; j < colors.length; j++) {
+      const key = colorPreferenceKey(colors[i], colors[j]);
+      scores.push(pairPreference(preferences[key] ?? 0));
+    }
+  }
+  return scores.reduce((sum, s) => sum + s, 0) / scores.length;
+}

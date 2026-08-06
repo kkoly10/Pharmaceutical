@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { OutfitCard } from "@/components/outfits/outfit-card";
-import { getRecentWornHistory } from "@/lib/data/outfits";
+import { getRecentWornHistory, getWornColorPairings } from "@/lib/data/outfits";
 import { listActiveClosetItems, withSignedPhotoUrls } from "@/lib/data/closet-items";
 import { generateOutfits } from "@/lib/outfit-matching/generate";
 import { OCCASIONS, type Occasion } from "@/lib/outfit-matching/types";
@@ -35,7 +35,11 @@ export default async function HomePage({
   const itemsWithPhotosById = new Map(itemsWithPhotos.map((item) => [item.id, item]));
 
   const suggestions = occasion
-    ? generateOutfits(items, { occasion, wornHistory: await getRecentWornHistory(supabase) })
+    ? generateOutfits(items, {
+        occasion,
+        wornHistory: await getRecentWornHistory(supabase),
+        colorPreferences: await getWornColorPairings(supabase),
+      })
     : [];
 
   return (

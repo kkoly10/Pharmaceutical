@@ -2,6 +2,8 @@ import {
   hasLightnessGradient,
   hasSinglePointOfColor,
   outfitHarmonyScore,
+  outfitPreferenceScore,
+  type ColorPairPreferences,
 } from "./colors.ts";
 import { OCCASION_RULES } from "./occasions.ts";
 import type { ClosetItem, Occasion } from "./types.ts";
@@ -28,6 +30,10 @@ const PATTERN_CLASH_PENALTY = 0.15;
 // lightness gradient are both known-flattering patterns (see colors.ts).
 const SINGLE_POINT_BONUS = 0.06;
 const LIGHTNESS_GRADIENT_BONUS = 0.04;
+// Per-user preference: favors color combinations this user has worn before.
+// Weighted like formality (0.15) so a well-established taste can meaningfully
+// re-rank, but never dominate color harmony or the occasion's formality fit.
+const PREFERENCE_WEIGHT = 0.15;
 
 export interface WornHistoryEntry {
   itemIds: string[];
@@ -37,6 +43,7 @@ export interface WornHistoryEntry {
 export interface GenerateOutfitsOptions {
   occasion: Occasion;
   wornHistory?: WornHistoryEntry[];
+  colorPreferences?: ColorPairPreferences;
   targetWarmth?: number;
   limit?: number;
   now?: Date;
@@ -155,6 +162,9 @@ export function generateOutfits(
           const gradientBonus = hasLightnessGradient(candidateItems)
             ? LIGHTNESS_GRADIENT_BONUS
             : 0;
+          const preferenceBonus = options.colorPreferences
+            ? outfitPreferenceScore(candidateItems, options.colorPreferences) * PREFERENCE_WEIGHT
+            : 0;
 
           const boldCount = candidateItems.filter((item) => item.pattern === "bold").length;
           const patternPenalty = Math.max(0, boldCount - 1) * PATTERN_CLASH_PENALTY;
@@ -179,7 +189,8 @@ export function generateOutfits(
           const score =
             colorScore +
             accentBonus +
-            gradientBonus -
+            gradientBonus +
+            preferenceBonus -
             patternPenalty +
             fit * FORMALITY_FIT_WEIGHT +
             warmthScore * WARMTH_FIT_WEIGHT -

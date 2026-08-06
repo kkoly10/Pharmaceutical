@@ -202,3 +202,31 @@ test("respects the limit option", () => {
 
   assert.equal(result.length, 1);
 });
+
+test("favors color combinations the user has worn before", () => {
+  // Two otherwise-equivalent outfits (red-top and blue-top, each a single
+  // point of color over white) — a learned preference for red+white should
+  // rank the red one first.
+  const items: ClosetItem[] = [
+    item({ id: "red-top", category: "top", colors: ["red"] }),
+    item({ id: "blue-top", category: "top", colors: ["blue"] }),
+    item({ id: "white-bottom", category: "bottom", colors: ["white"] }),
+    item({ id: "white-shoes", category: "shoes", colors: ["white"] }),
+  ];
+
+  const withPreference = generateOutfits(items, {
+    occasion: "casual",
+    limit: 10,
+    colorPreferences: { "red|white": 20 },
+  });
+  assert.ok(
+    withPreference[0].itemIds.includes("red-top"),
+    "the worn-before red+white outfit should rank first",
+  );
+
+  // The preference term strictly raised that outfit's score vs. no history.
+  const redWith = withPreference.find((s) => s.itemIds.includes("red-top"))!.score;
+  const noPreference = generateOutfits(items, { occasion: "casual", limit: 10 });
+  const redWithout = noPreference.find((s) => s.itemIds.includes("red-top"))!.score;
+  assert.ok(redWith > redWithout, `expected preference to raise score: ${redWith} > ${redWithout}`);
+});

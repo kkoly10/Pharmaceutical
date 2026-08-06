@@ -1,10 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  colorPreferenceKey,
   garmentCompatibility,
   hasLightnessGradient,
   hasSinglePointOfColor,
   outfitHarmonyScore,
+  outfitPreferenceScore,
   type ColorScoredGarment,
 } from "./colors.ts";
 import type { Category } from "./types.ts";
@@ -108,4 +110,36 @@ test("does not reward a non-monotonic stack", () => {
 test("does not apply a gradient when there is no top/bottom/shoes stack", () => {
   const outfit = [g("dress", "cream"), g("shoes", "black")];
   assert.equal(hasLightnessGradient(outfit), false);
+});
+
+// --- Per-user preference learning (positive-only Bayesian shrinkage) ---
+
+test("color preference key is order-independent", () => {
+  assert.equal(colorPreferenceKey("navy", "white"), colorPreferenceKey("white", "navy"));
+});
+
+test("preference score is zero at cold start (no history)", () => {
+  const outfit = [g("top", "red"), g("bottom", "white"), g("shoes", "black")];
+  assert.equal(outfitPreferenceScore(outfit, {}), 0);
+});
+
+test("preference score is zero for an outfit with fewer than two distinct colors", () => {
+  const outfit = [g("top", "black"), g("bottom", "black"), g("shoes", "black")];
+  assert.equal(outfitPreferenceScore(outfit, { "black|black": 99 }), 0);
+});
+
+test("a worn color pairing scores above an unworn one", () => {
+  const outfit = [g("top", "navy"), g("bottom", "white")];
+  const worn = outfitPreferenceScore(outfit, { "navy|white": 10 });
+  const unworn = outfitPreferenceScore(outfit, {});
+  assert.ok(worn > unworn, `expected worn ${worn} > unworn ${unworn}`);
+});
+
+test("preference score increases monotonically with wear count (with diminishing returns)", () => {
+  const outfit = [g("top", "navy"), g("bottom", "white")];
+  const few = outfitPreferenceScore(outfit, { "navy|white": 2 });
+  const many = outfitPreferenceScore(outfit, { "navy|white": 20 });
+  assert.ok(many > few);
+  // Bounded below 1 by the shrinkage prior even at high counts.
+  assert.ok(many < 1);
 });
