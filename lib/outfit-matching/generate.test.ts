@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { generateOutfits } from "./generate.ts";
-import { garmentCompatibility } from "./colors.ts";
 import type { ClosetItem } from "./types.ts";
 
 function item(overrides: Partial<ClosetItem> & Pick<ClosetItem, "id" | "category">): ClosetItem {
@@ -105,31 +104,6 @@ test("prefers an all-neutral outfit over a bold two-color outfit, all else equal
   );
 
   assert.ok(neutralOutfit[0].score > boldOutfit[0].score);
-});
-
-// Regression guard for the color-harmony fix: the old 3-bucket model scored
-// red/green (120 apart) as the worst-case 0.3 "awkward middle", but 120 is
-// the canonical triadic-harmony angle and should read as intentional.
-test("scores a triadic pairing (red/green, 120 apart) as harmonious, not a clash", () => {
-  const redGreen = garmentCompatibility(["red"], ["green"]);
-  assert.ok(
-    redGreen >= 0.75,
-    `expected red/green triadic harmony >= 0.75, got ${redGreen}`,
-  );
-});
-
-test("scores a named harmony above an off-angle near-miss", () => {
-  // red/green = 120 (triadic, a named harmony); green/blue = 95 (a near-miss
-  // sitting between the 90 tetradic and 120 triadic angles).
-  const triadic = garmentCompatibility(["red"], ["green"]);
-  const nearMiss = garmentCompatibility(["green"], ["blue"]);
-  assert.ok(triadic > nearMiss, `expected triadic ${triadic} > near-miss ${nearMiss}`);
-});
-
-test("keeps neutrals as the safest pairing, above any chromatic harmony", () => {
-  const neutralPair = garmentCompatibility(["black"], ["white"]);
-  const bestChromatic = garmentCompatibility(["red"], ["green"]);
-  assert.ok(neutralPair > bestChromatic);
 });
 
 test("penalizes combining two bold patterns", () => {

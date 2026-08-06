@@ -1,4 +1,8 @@
-import { garmentCompatibility } from "./colors.ts";
+import {
+  hasLightnessGradient,
+  hasSinglePointOfColor,
+  outfitHarmonyScore,
+} from "./colors.ts";
 import { OCCASION_RULES } from "./occasions.ts";
 import type { ClosetItem, Occasion } from "./types.ts";
 
@@ -19,6 +23,11 @@ const EXACT_REPEAT_PENALTY = 1;
 const FORMALITY_FIT_WEIGHT = 0.15;
 const WARMTH_FIT_WEIGHT = 0.1;
 const PATTERN_CLASH_PENALTY = 0.15;
+// Small bonuses — deliberate tiebreakers among otherwise-similar outfits, not
+// dominant terms. "Neutrals + one point of color" and a top-to-bottom
+// lightness gradient are both known-flattering patterns (see colors.ts).
+const SINGLE_POINT_BONUS = 0.06;
+const LIGHTNESS_GRADIENT_BONUS = 0.04;
 
 export interface WornHistoryEntry {
   itemIds: string[];
@@ -72,17 +81,6 @@ function cartesian<A, B>(as: A[], bs: B[]): [A, B][] {
   const pairs: [A, B][] = [];
   for (const a of as) for (const b of bs) pairs.push([a, b]);
   return pairs;
-}
-
-function pairwiseColorScore(items: ClosetItem[]): number {
-  if (items.length < 2) return 1;
-  const scores: number[] = [];
-  for (let i = 0; i < items.length; i++) {
-    for (let j = i + 1; j < items.length; j++) {
-      scores.push(garmentCompatibility(items[i].colors, items[j].colors));
-    }
-  }
-  return scores.reduce((sum, s) => sum + s, 0) / scores.length;
 }
 
 function formalityFit(items: ClosetItem[], min: number, max: number): number {
@@ -152,7 +150,11 @@ export function generateOutfits(
         for (const accessoryOption of accessoryOptions) {
           const candidateItems = [base, [shoe], outerOption ? [outerOption] : [], accessoryOption ? [accessoryOption] : []].flat();
 
-          const colorScore = pairwiseColorScore(candidateItems);
+          const colorScore = outfitHarmonyScore(candidateItems);
+          const accentBonus = hasSinglePointOfColor(candidateItems) ? SINGLE_POINT_BONUS : 0;
+          const gradientBonus = hasLightnessGradient(candidateItems)
+            ? LIGHTNESS_GRADIENT_BONUS
+            : 0;
 
           const boldCount = candidateItems.filter((item) => item.pattern === "bold").length;
           const patternPenalty = Math.max(0, boldCount - 1) * PATTERN_CLASH_PENALTY;
@@ -175,7 +177,9 @@ export function generateOutfits(
           const isExactRepeat = recentSets.some((set) => setsEqual(set, candidateIdSet));
 
           const score =
-            colorScore -
+            colorScore +
+            accentBonus +
+            gradientBonus -
             patternPenalty +
             fit * FORMALITY_FIT_WEIGHT +
             warmthScore * WARMTH_FIT_WEIGHT -

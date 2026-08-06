@@ -1,30 +1,53 @@
+import type { Category } from "./types.ts";
+
 interface ColorInfo {
   neutral: boolean;
   hue?: number; // degrees on the color wheel, 0-360. Omitted for neutrals.
+  lightness: number; // approximate perceived lightness, 0 (black) - 1 (white).
 }
 
 // Curated on purpose, not a full color picker: this app scores harmony
 // between named colors, so every color a user can tag must exist here.
+// `lightness` is a rough hand-tagged value (Chinese 明度, "value") used only
+// for the top-to-bottom gradient bonus — it doesn't need to be exact.
 export const PALETTE: Record<string, ColorInfo> = {
-  black: { neutral: true },
-  white: { neutral: true },
-  gray: { neutral: true },
-  navy: { neutral: true },
-  beige: { neutral: true },
-  brown: { neutral: true },
-  cream: { neutral: true },
-  denim: { neutral: true },
-  red: { neutral: false, hue: 0 },
-  orange: { neutral: false, hue: 30 },
-  yellow: { neutral: false, hue: 55 },
-  green: { neutral: false, hue: 120 },
-  teal: { neutral: false, hue: 175 },
-  blue: { neutral: false, hue: 215 },
-  purple: { neutral: false, hue: 275 },
-  pink: { neutral: false, hue: 330 },
+  black: { neutral: true, lightness: 0.05 },
+  white: { neutral: true, lightness: 0.98 },
+  gray: { neutral: true, lightness: 0.55 },
+  navy: { neutral: true, lightness: 0.2 },
+  beige: { neutral: true, lightness: 0.8 },
+  brown: { neutral: true, lightness: 0.35 },
+  cream: { neutral: true, lightness: 0.92 },
+  denim: { neutral: true, lightness: 0.45 },
+  red: { neutral: false, hue: 0, lightness: 0.45 },
+  orange: { neutral: false, hue: 30, lightness: 0.6 },
+  yellow: { neutral: false, hue: 55, lightness: 0.8 },
+  green: { neutral: false, hue: 120, lightness: 0.45 },
+  teal: { neutral: false, hue: 175, lightness: 0.5 },
+  blue: { neutral: false, hue: 215, lightness: 0.4 },
+  purple: { neutral: false, hue: 275, lightness: 0.35 },
+  pink: { neutral: false, hue: 330, lightness: 0.7 },
 };
 
 export const COLOR_NAMES = Object.keys(PALETTE);
+
+export function isNeutralColor(name: string): boolean {
+  return PALETTE[name]?.neutral ?? false;
+}
+
+// A garment reads as neutral only when every color it carries is neutral.
+export function isNeutralGarment(colors: string[]): boolean {
+  return colors.length > 0 && colors.every(isNeutralColor);
+}
+
+function colorLightness(name: string): number {
+  return PALETTE[name]?.lightness ?? 0.5;
+}
+
+function garmentLightness(colors: string[]): number {
+  if (colors.length === 0) return 0.5;
+  return colors.reduce((sum, c) => sum + colorLightness(c), 0) / colors.length;
+}
 
 function hueDistance(a: number, b: number): number {
   const diff = Math.abs(a - b) % 360;
@@ -37,7 +60,7 @@ function hueDistance(a: number, b: number): number {
 // which is where a pairing reads as an accidental near-miss rather than a
 // deliberate choice.
 //
-// This replaces an earlier 3-bucket model (analogous <=40, complementary
+// This replaced an earlier 3-bucket model (analogous <=40, complementary
 // >=150, else a flat 0.3 "awkward middle") that was measurably wrong: it
 // scored red/green — exactly 120 apart in this palette — as a clash, when
 // 120 is the canonical *triadic* harmony angle. Scores below rank the
@@ -73,6 +96,20 @@ function hueHarmonyScore(distance: number): number {
   return bestScore - HARMONY_FALLOFF * bestOffset;
 }
 
+// French styling guides call out navy+black as a specific "faux pas" — the
+// two are too close in hue to read as a deliberate contrast, yet too
+// different to read as a matched neutral. Carve such pairs out below the
+// generic "neutrals go with anything" score rather than treating every
+// neutral-neutral pair as uniformly safe. Extend the list if other named
+// near-clash neutral pairs come up; keep it to documented ones.
+const NEAR_CLASH_NEUTRAL_PAIRS: [string, string][] = [["navy", "black"]];
+
+function isNearClashNeutralPair(a: string, b: string): boolean {
+  return NEAR_CLASH_NEUTRAL_PAIRS.some(
+    ([x, y]) => (a === x && b === y) || (a === y && b === x),
+  );
+}
+
 // Compatibility score for a single pair of named colors, 0-1.
 function pairCompatibility(a: string, b: string): number {
   const infoA = PALETTE[a];
@@ -80,6 +117,7 @@ function pairCompatibility(a: string, b: string): number {
   if (!infoA || !infoB) return 0.5; // unknown color: neutral-ish assumption
 
   if (a === b) return 1; // monochromatic — always safe
+  if (isNearClashNeutralPair(a, b)) return 0.7; // navy+black: reads as unintentional
   if (infoA.neutral || infoB.neutral) return 0.9; // a neutral goes with anything
 
   return hueHarmonyScore(hueDistance(infoA.hue!, infoB.hue!));
@@ -94,4 +132,78 @@ export function garmentCompatibility(a: string[], b: string[]): number {
   if (a.length === 0 || b.length === 0) return 0.9;
   const scores = a.flatMap((colorA) => b.map((colorB) => pairCompatibility(colorA, colorB)));
   return scores.reduce((sum, s) => sum + s, 0) / scores.length;
+}
+
+// --- Outfit-level color scoring ---
+//
+// These operate on a whole candidate outfit (each garment's category +
+// colors) rather than a single pair, so `generate.ts` can weight each concern
+// separately. Kept here in the pure color module (no framework imports) so
+// the whole color model stays independently unit-testable.
+
+export interface ColorScoredGarment {
+  category: Category;
+  colors: string[];
+}
+
+// Kasane-no-irome (襲の色目, Heian-era kimono-layering theory): in a 3+ item
+// outfit a neutral item softens the clash between two chromatic items it
+// visually sits between — mirroring the convention of inserting a pale layer
+// between two contrasting colors. Only lifts pairs that actually clash (below
+// the target), and only when a neutral mediator is present.
+const MEDIATION_TARGET = 0.75;
+const MEDIATION_STRENGTH = 0.5;
+
+export function outfitHarmonyScore(garments: ColorScoredGarment[]): number {
+  if (garments.length < 2) return 1;
+  const hasNeutralMediator = garments.some((g) => isNeutralGarment(g.colors));
+  const scores: number[] = [];
+  for (let i = 0; i < garments.length; i++) {
+    for (let j = i + 1; j < garments.length; j++) {
+      let pair = garmentCompatibility(garments[i].colors, garments[j].colors);
+      const bothChromatic =
+        !isNeutralGarment(garments[i].colors) && !isNeutralGarment(garments[j].colors);
+      if (
+        hasNeutralMediator &&
+        garments.length >= 3 &&
+        bothChromatic &&
+        pair < MEDIATION_TARGET
+      ) {
+        pair += MEDIATION_STRENGTH * (MEDIATION_TARGET - pair);
+      }
+      scores.push(pair);
+    }
+  }
+  return scores.reduce((sum, s) => sum + s, 0) / scores.length;
+}
+
+// Western 60-30-10 and Korean 무채색+원포인트 ("neutrals + one point color")
+// converge on the same structure: an outfit reads as deliberately styled when
+// exactly one item is the chromatic "point" against an otherwise-neutral base.
+export function hasSinglePointOfColor(garments: ColorScoredGarment[]): boolean {
+  return garments.filter((g) => !isNeutralGarment(g.colors)).length === 1;
+}
+
+// Chinese 明度排列法 ("lightness-ordering method"): a monotonic light-to-dark
+// (or dark-to-light) gradient down the vertical top -> bottom -> shoes stack
+// reads as intentional. Only applies when that clear stack exists (not for a
+// dress) and only when there's real lightness variation — an all-one-shade
+// outfit is trivially "ordered" but isn't a gradient.
+const MIN_GRADIENT_SPREAD = 0.2;
+
+export function hasLightnessGradient(garments: ColorScoredGarment[]): boolean {
+  const top = garments.find((g) => g.category === "top");
+  const bottom = garments.find((g) => g.category === "bottom");
+  const shoe = garments.find((g) => g.category === "shoes");
+  if (!top || !bottom || !shoe) return false;
+
+  const a = garmentLightness(top.colors);
+  const b = garmentLightness(bottom.colors);
+  const c = garmentLightness(shoe.colors);
+  const spread = Math.max(a, b, c) - Math.min(a, b, c);
+  if (spread < MIN_GRADIENT_SPREAD) return false;
+
+  const descending = a >= b && b >= c;
+  const ascending = a <= b && b <= c;
+  return descending || ascending;
 }
